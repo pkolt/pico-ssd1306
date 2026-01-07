@@ -19,7 +19,7 @@ if (NOT TARGET _pico_ssd1306_inclusion_marker)
     if (NOT PICO_SSD1306_PATH)
         set(PICO_SSD1306_PATH ${CMAKE_CURRENT_LIST_DIR})
     endif()
-    set(PICO_SSD1306_PATH "${PICO_SSD1306_PATH}" CACHE PATH "Path to Pico Extras")
+    set(PICO_SSD1306_PATH "${PICO_SSD1306_PATH}" CACHE PATH "Path to Pico SSD1306")
 
     # The real work gets done in post_init which is called at the end of pico_sdk_init
     list(APPEND PICO_SDK_POST_LIST_FILES ${CMAKE_CURRENT_LIST_DIR}/post_init.cmake)

@@ -31,7 +31,7 @@ if (NOT PICO_SSD1306_PATH)
                 GIT_TAG master
         )
         if (NOT pico_ssd1306)
-            message("Downloading Raspberry Pi Pico Extras")
+            message("Downloading Pico SSD1306")
             FetchContent_Populate(pico_ssd1306)
             set(PICO_SSD1306_PATH ${pico_ssd1306_SOURCE_DIR})
         endif ()
@@ -42,21 +42,21 @@ if (NOT PICO_SSD1306_PATH)
             message("Defaulting PICO_SSD1306_PATH as sibling of PICO_SDK_PATH: ${PICO_SSD1306_PATH}")
         else()
             message(FATAL_ERROR
-                    "PICO EXTRAS location was not specified. Please set PICO_SSD1306_PATH or set PICO_SSD1306_FETCH_FROM_GIT to on to fetch from git."
+                    "PICO SSD1306 location was not specified. Please set PICO_SSD1306_PATH or set PICO_SSD1306_FETCH_FROM_GIT to on to fetch from git."
                     )
         endif()
     endif ()
 endif ()
 
-set(PICO_SSD1306_PATH "${PICO_SSD1306_PATH}" CACHE PATH "Path to the PICO EXTRAS")
-set(PICO_SSD1306_FETCH_FROM_GIT "${PICO_SSD1306_FETCH_FROM_GIT}" CACHE BOOL "Set to ON to fetch copy of PICO EXTRAS from git if not otherwise locatable")
-set(PICO_SSD1306_FETCH_FROM_GIT_PATH "${PICO_SSD1306_FETCH_FROM_GIT_PATH}" CACHE FILEPATH "location to download EXTRAS")
+set(PICO_SSD1306_PATH "${PICO_SSD1306_PATH}" CACHE PATH "Path to the PICO SSD1306")
+set(PICO_SSD1306_FETCH_FROM_GIT "${PICO_SSD1306_FETCH_FROM_GIT}" CACHE BOOL "Set to ON to fetch copy of PICO SSD1306 from git if not otherwise locatable")
+set(PICO_SSD1306_FETCH_FROM_GIT_PATH "${PICO_SSD1306_FETCH_FROM_GIT_PATH}" CACHE FILEPATH "location to download SSD1306")
 
 get_filename_component(PICO_SSD1306_PATH "${PICO_SSD1306_PATH}" REALPATH BASE_DIR "${CMAKE_BINARY_DIR}")
 if (NOT EXISTS ${PICO_SSD1306_PATH})
     message(FATAL_ERROR "Directory '${PICO_SSD1306_PATH}' not found")
 endif ()
 
-set(PICO_SSD1306_PATH ${PICO_SSD1306_PATH} CACHE PATH "Path to the PICO EXTRAS" FORCE)
+set(PICO_SSD1306_PATH ${PICO_SSD1306_PATH} CACHE PATH "Path to the PICO SSD1306" FORCE)
 
 add_subdirectory(${PICO_SSD1306_PATH} pico_ssd1306)
