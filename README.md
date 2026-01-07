@@ -81,14 +81,18 @@ int main() {
 
 Use LSB bit order for creating image.
 
-## Build
+## Build Library
 
 ```sh
-rm -rf build &&\
-mkdir build &&\
-cd build &&\
-cmake -DPICO_BOARD=pico2 .. &&\
-make
+cmake -S . -B build # Setup CMake build directory
+cmake --build build --target pico_ssd1306 # Build library
+```
+
+## Build Example
+
+```sh
+cmake -S . -B build # OR cmake -S . -B build -DPICO_BOARD=pico2
+cmake --build build --target ssd1306_example
 ```
 
 ## API
