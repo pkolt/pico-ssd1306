@@ -23,15 +23,9 @@ Library for working with the SSD1306 OLED on Raspberry Pi Pico boards.
 #define SSD1306_I2C_ADDRESS 0x3C
 #define I2C_PORT i2c0
 
-#if defined(PICO_RP2040)
-    #define I2C_SDA 4
-    #define I2C_SCL 5
-#elif defined(PICO_RP2350)
-    #define I2C_SDA 20
-    #define I2C_SCL 21
-#else
-    #error "Unsupported MCU: this code supports only RP2040 and RP2350"
-#endif
+// See the correct pins in the datasheet for your board
+#define I2C_SDA 20
+#define I2C_SCL 21
 
 int main() {
     stdio_init_all();
