@@ -1,11 +1,11 @@
 # Pico SSD1306
 
-Library for working with OLED SSD1306 on Raspberry Pi Pico boards.
+Library for working with the SSD1306 OLED on Raspberry Pi Pico boards.
 
 ## Install
 
-1. Install [Pico SDK](https://github.com/raspberrypi/pico-sdk) and set `PICO_SDK_PATH` (example: `/Users/bob/.pico-sdk/sdk/2.2.0`)
-2. Install [Pico SSD1306](https://github.com/pkolt/pico-ssd1306) and set `PICO_SSD1306_PATH` (example: `/Users/bob/pico-ssd1306`)
+1. Install [Pico SDK](https://github.com/raspberrypi/pico-sdk) and set `PICO_SDK_PATH` (example: `/Users/<username>/.pico-sdk/sdk/2.2.0`)
+2. Install [Pico SSD1306](https://github.com/pkolt/pico-ssd1306) and set `PICO_SSD1306_PATH` (example: `/Users/<username>/pico-ssd1306`)
 3. Copy the file `external/pico_ssd1306_import.cmake` to the root of your project.
 4. Add `include(pico_ssd1306_import.cmake)` to `CMakeLists.txt` after `include(pico_sdk_import.cmake)`.
 
@@ -73,18 +73,18 @@ int main() {
 }
 ```
 
-## Make bitmap for SSD1306
+## Create a bitmap for SSD1306
 
-[Create bitmap image](https://pkolt.github.io/bitmap_editor/)
+[Create a bitmap image](https://pkolt.github.io/bitmap_editor/)
 
-[Convert font to bitmap](https://github.com/pkolt/font2bitmap)
+[Convert a font to bitmap](https://github.com/pkolt/font2bitmap)
 
-Use LSB bit order for creating image.
+Use LSB bit order when creating images.
 
-## Build Library
+## Build the Library
 
 ```sh
-cmake -S . -B build # Setup CMake build directory
+cmake -S . -B build # Set up CMake build directory
 cmake --build build --target pico_ssd1306 # Build library
 ```
 
@@ -92,23 +92,48 @@ cmake --build build --target pico_ssd1306 # Build library
 
 ```sh
 cmake -S . -B build # OR cmake -S . -B build -DPICO_BOARD=pico2
-cmake --build build --target ssd1306_example
+cmake --build build --target oled # See output files in `build/examples/oled`
 ```
 
 ## API
 
-- `ssd1306_config_t ssd1306_get_default_config()` - Gets the default ssd1306 configuration.
-- `ssd1306_t ssd1306_create(i2c_inst_t* i2c_inst, uint8_t i2c_address)` - Creates an ssd1306 instance.
-- `bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config)` - Initializes the ssd1306.
-- `bool ssd1306_set_contrast(ssd1306_t* ssd1306, uint8_t contrast)` - Sets the contrast.
-- `bool ssd1306_set_inverse(ssd1306_t* ssd1306, bool value)` - Sets inverse mode.
-- `bool ssd1306_display_on(ssd1306_t* ssd1306)` - Turns on the display.
-- `bool ssd1306_display_off(ssd1306_t* ssd1306)` - Turns off the display.
-- `bool ssd1306_clear_display(ssd1306_t* ssd1306)` - Clears the display.
-- `void ssd1306_set_font(ssd1306_t* ssd1306, const font_t* font)` - Sets the font.
-- `bool ssd1306_print(ssd1306_t* ssd1306, const char* text, uint8_t start_x, uint8_t start_y)` - Prints text.
-- `bool ssd1306_draw_bitmap(ssd1306_t* ssd1306, const bitmap_t* bitmap, uint8_t start_x, uint8_t start_y)` - Draws a bitmap.
-- `bool ssd1306_show(ssd1306_t* ssd1306)` - Shows the display content.
+```c
+// Gets the default ssd1306 configuration
+ssd1306_config_t ssd1306_get_default_config()
+
+// Creates an ssd1306 instance
+ssd1306_t ssd1306_create(i2c_inst_t* i2c_inst, uint8_t i2c_address)
+
+// Initializes the ssd1306
+bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config)
+
+// Sets the contrast
+bool ssd1306_set_contrast(ssd1306_t* ssd1306, uint8_t contrast)
+
+// Sets inverse mode
+bool ssd1306_set_inverse(ssd1306_t* ssd1306, bool value)
+
+// Turns on the display
+bool ssd1306_display_on(ssd1306_t* ssd1306)
+
+// Turns off the display
+bool ssd1306_display_off(ssd1306_t* ssd1306)
+
+// Clears the display
+bool ssd1306_clear_display(ssd1306_t* ssd1306)
+
+// Sets the font
+void ssd1306_set_font(ssd1306_t* ssd1306, const font_t* font)
+
+// Prints text
+bool ssd1306_print(ssd1306_t* ssd1306, const char* text, uint8_t start_x, uint8_t start_y)
+
+// Draws a bitmap
+bool ssd1306_draw_bitmap(ssd1306_t* ssd1306, const bitmap_t* bitmap, uint8_t start_x, uint8_t start_y)
+
+// Shows the display content
+bool ssd1306_show(ssd1306_t* ssd1306)
+```
 
 ## Compatibility
 
@@ -120,6 +145,36 @@ cmake --build build --target ssd1306_example
 ### Displays
 
 - 128x64
+
+## Set Up VS Code
+
+Follow these steps so VS Code can find the Pico SDK headers (so types like `uint8_t` resolve):
+
+1. Install the **C/C++** extension (`ms-vscode.cpptools`). Installing **CMake Tools** is recommended.
+2. Ensure `PICO_SDK_PATH` and `PICO_SSD1306_PATH` are set in your shell or VS Code environment.
+3. Generate `compile_commands.json` from CMake (this makes IntelliSense use the same include/flags as the build):
+
+```bash
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
+
+4. In VS Code, open the Command Palette -> **C/C++: Edit Configurations (UI)** and set:
+	- **Compile commands** -> `${workspaceFolder}/build/compile_commands.json`
+	- **Compiler path** -> your host compiler (for example `/usr/bin/clang` or `/usr/bin/gcc`) or to `arm-none-eabi-gcc` for Pico cross-compiles.
+
+5. (Optional) In `.vscode/c_cpp_properties.json` add or verify the `compileCommands` entry:
+
+```json
+"compileCommands": "${workspaceFolder}/build/compile_commands.json"
+```
+
+6. After updating settings, run **C/C++: Reset IntelliSense Database** from the Command Palette or restart VS Code.
+
+7. Troubleshooting: if `uint8_t` or `stdint.h` are still reported as missing, make sure the extension's `compilerPath` points to the same toolchain CMake used (for Pico cross-compiles point it to `arm-none-eabi-gcc`) so the extension picks up the correct sysroot/include paths.
+
+Using the CMake Tools extension to configure the project will also generate `compile_commands.json` automatically when CMake config runs.
+
+8. Reopen the project in VS Code.
 
 ## Licenses
 
