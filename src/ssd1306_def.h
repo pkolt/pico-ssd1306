@@ -13,11 +13,14 @@
 #include "bitmap.h"
 #include "font.h"
 
-#define SSD1306_WIDTH 128
-#define SSD1306_HEIGHT 64
+#ifndef SSD1306_I2C_TIMEOUT_US
+// Timeout for a full I2C transfer. Must be enough for framebuffer writes
+// (e.g. 1025 bytes for 128x64), otherwise writes can be truncated.
+#define SSD1306_I2C_TIMEOUT_US 100000
+#endif
+
 #define SSD1306_BITS_PER_COLUMN 8 // quantity segments in one column
 #define SSD1306_BITS_IN_BYTE 8 // 1 byte = 8 bits
-#define SSD1306_DISPLAY_BYTES (SSD1306_WIDTH * SSD1306_HEIGHT / SSD1306_BITS_IN_BYTE) // display size in bytes
 
 #define SSD1306_SEND_COMMAND 0x00
 #define SSD1306_SEND_DATA 0x40
@@ -76,8 +79,8 @@ typedef enum {
 #define SSD1306_DISPLAY_OFFSET_MAX 0x3F // 63
 
 #define SSD1306_COM_PINS_HARDWARE_CONFIG_COMMAND 0xDA // Set COM Pins Hardware Configuration
-#define SSD1306_COM_PINS_HARDWARE_CONFIG_SEQUENTIAL_COM_PIN 0x00 // Sequential COM pin configuration
-#define SSD1306_COM_PINS_HARDWARE_CONFIG_ALTERNATIVE_COM_PIN 0x16 // Alternative COM pin configuration (RESET)
+#define SSD1306_COM_PINS_HARDWARE_CONFIG_SEQUENTIAL_COM_PIN 0x02 // Sequential COM pin configuration
+#define SSD1306_COM_PINS_HARDWARE_CONFIG_ALTERNATIVE_COM_PIN 0x12 // Alternative COM pin configuration
 #define SSD1306_COM_PINS_HARDWARE_CONFIG_DISABLE_REMAP 0x00 // Disable COM Left/Right remap (RESET)
 #define SSD1306_COM_PINS_HARDWARE_CONFIG_ENABLE_REMAP 0x20 // Enable COM Left/Right remap
 
@@ -157,11 +160,19 @@ typedef struct {
 
 } ssd1306_config_t;
 
+typedef enum {
+    SSD1306_DISPLAY_SIZE_128x64 = 0x00,
+    SSD1306_DISPLAY_SIZE_128x32 = 0x01,
+} ssd1306_display_size_t;
+
 typedef struct {
     i2c_inst_t* i2c_inst;
     uint8_t i2c_address;
+    uint8_t width;
+    uint8_t height;
     const font_t* font;
-    uint8_t buffer[SSD1306_DISPLAY_BYTES + 1];
+    uint16_t buffer_size;
+    uint8_t* buffer;
 } ssd1306_t;
 
 #endif // SSD1306_DEF_H

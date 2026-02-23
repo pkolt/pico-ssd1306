@@ -9,21 +9,34 @@
 #include <stdio.h>
 #include <string.h>
 #include "ssd1306_def.h"
+#include "ssd1306.h"
 
-static bool i2c_check(int result) {
-    return result >= 0;
+static bool i2c_write_exact(int result, size_t expected_len) {
+    return result == (int)expected_len;
+}
+
+static uint16_t ssd1306_get_display_bytes(const ssd1306_t* ssd1306) {
+    return (uint16_t)(((uint16_t)ssd1306->width * (uint16_t)ssd1306->height) / SSD1306_BITS_IN_BYTE);
+}
+
+static bool ssd1306_has_valid_geometry(const ssd1306_t* ssd1306) {
+    return ssd1306 != NULL && ssd1306->width > 0 && ssd1306->height > 0;
+}
+
+static bool ssd1306_is_ready(const ssd1306_t* ssd1306) {
+    return ssd1306_has_valid_geometry(ssd1306) && ssd1306->buffer != NULL && ssd1306->buffer_size > 1;
 }
 
 static bool ssd1306_send_command(ssd1306_t* ssd1306, uint8_t command) {
-    return i2c_check(i2c_write_blocking(ssd1306->i2c_inst, ssd1306->i2c_address, (uint8_t[]){SSD1306_SEND_COMMAND, command}, 2, false));
+    return i2c_write_exact(i2c_write_timeout_us(ssd1306->i2c_inst, ssd1306->i2c_address, (uint8_t[]){SSD1306_SEND_COMMAND, command}, 2, false, SSD1306_I2C_TIMEOUT_US), 2);
 }
 
 static bool ssd1306_send_command_value(ssd1306_t* ssd1306, uint8_t command, uint8_t value) {
-    return i2c_check(i2c_write_blocking(ssd1306->i2c_inst, ssd1306->i2c_address, (uint8_t[]){SSD1306_SEND_COMMAND, command, value}, 3, false));
+    return i2c_write_exact(i2c_write_timeout_us(ssd1306->i2c_inst, ssd1306->i2c_address, (uint8_t[]){SSD1306_SEND_COMMAND, command, value}, 3, false, SSD1306_I2C_TIMEOUT_US), 3);
 }
 
 static bool ssd1306_send_command_2_values(ssd1306_t* ssd1306, uint8_t command, uint8_t value1, uint8_t value2) {
-    return i2c_check(i2c_write_blocking(ssd1306->i2c_inst, ssd1306->i2c_address, (uint8_t[]){SSD1306_SEND_COMMAND, command, value1, value2}, 4, false));
+    return i2c_write_exact(i2c_write_timeout_us(ssd1306->i2c_inst, ssd1306->i2c_address, (uint8_t[]){SSD1306_SEND_COMMAND, command, value1, value2}, 4, false, SSD1306_I2C_TIMEOUT_US), 4);
 }
 
 /**
@@ -61,16 +74,16 @@ bool ssd1306_display_off(ssd1306_t* ssd1306) {
  * Validate Page
  * @param page (0-7)
 */
-static bool is_valid_page(uint8_t page) {
-    return page >= SSD1306_PAGE_START_ADDRESS && page <= SSD1306_PAGE_END_ADDRESS;
+static bool is_valid_page(uint8_t page, uint8_t max_page) {
+    return page >= SSD1306_PAGE_START_ADDRESS && page <= max_page;
 }
 
 /**
  * Validate Column
  * @param column (0-127)
 */
-static bool is_valid_column(uint8_t column) {
-    return column >= SSD1306_COLUMN_START_ADDRESS && column <= SSD1306_COLUMN_END_ADDRESS;
+static bool is_valid_column(uint8_t column, uint8_t max_column) {
+    return column >= SSD1306_COLUMN_START_ADDRESS && column <= max_column;
 }
 
 /**
@@ -82,10 +95,25 @@ static bool is_valid_column(uint8_t column) {
  * @param end_column (0-127)
 */
 static bool ssd1306_set_area(ssd1306_t* ssd1306, uint8_t start_page, uint8_t end_page, uint8_t start_column, uint8_t end_column) {
-    if (!is_valid_page(start_page) || 
-        !is_valid_page(end_page) || 
-        !is_valid_column(start_column) || 
-        !is_valid_column(end_column)) {
+    if (!ssd1306_has_valid_geometry(ssd1306)) {
+        return false;
+    }
+
+    const uint8_t max_page = (ssd1306->height / SSD1306_BITS_PER_COLUMN) - 1;
+    const uint8_t max_column = ssd1306->width - 1;
+
+    if (max_page > SSD1306_PAGE_END_ADDRESS || max_column > SSD1306_COLUMN_END_ADDRESS) {
+        return false;
+    }
+
+    if (start_page > end_page || start_column > end_column) {
+        return false;
+    }
+
+    if (!is_valid_page(start_page, max_page) || 
+        !is_valid_page(end_page, max_page) || 
+        !is_valid_column(start_column, max_column) || 
+        !is_valid_column(end_column, max_column)) {
         return false;
     }
 
@@ -96,7 +124,10 @@ static bool ssd1306_set_area(ssd1306_t* ssd1306, uint8_t start_page, uint8_t end
 }
 
 bool ssd1306_clear_display(ssd1306_t* ssd1306) {
-    memset(ssd1306->buffer + 1, 0, SSD1306_DISPLAY_BYTES);
+    if (!ssd1306_is_ready(ssd1306)) {
+        return false;
+    }
+    memset(ssd1306->buffer + 1, 0, ssd1306->buffer_size - 1);
     return true;
 }
 
@@ -138,25 +169,69 @@ ssd1306_config_t ssd1306_get_default_config() {
     return settings;
 }
 
-ssd1306_t ssd1306_create(i2c_inst_t* i2c_inst, uint8_t i2c_address) {
-    ssd1306_t ssd1306 = { .i2c_inst = i2c_inst, .i2c_address = i2c_address, .font = NULL };
+ssd1306_t ssd1306_create(i2c_inst_t* i2c_inst, uint8_t i2c_address, ssd1306_display_size_t display_size) {
+    ssd1306_t ssd1306 = {
+        .i2c_inst = i2c_inst,
+        .i2c_address = i2c_address,
+        .width = 0,
+        .height = 0,
+        .font = NULL,
+        .buffer_size = 0,
+        .buffer = NULL
+    };
+
+    switch (display_size) {
+        case SSD1306_DISPLAY_SIZE_128x64:
+            ssd1306.width = 128;
+            ssd1306.height = 64;
+            break;
+        case SSD1306_DISPLAY_SIZE_128x32:
+            ssd1306.width = 128;
+            ssd1306.height = 32;
+            break;
+        default:
+            return ssd1306;
+    }
+
+    const uint16_t display_bytes = ssd1306_get_display_bytes(&ssd1306);
+    // +1 for the leading I2C control byte (SSD1306_SEND_DATA) before framebuffer bytes.
+    ssd1306.buffer_size = display_bytes + 1;
+    ssd1306.buffer = (uint8_t*)malloc(ssd1306.buffer_size);
+    if (ssd1306.buffer == NULL) {
+        ssd1306.buffer_size = 0;
+        return ssd1306;
+    }
+
+    ssd1306.buffer[0] = SSD1306_SEND_DATA;
+    memset(ssd1306.buffer + 1, 0, display_bytes);
+
     return ssd1306;
 };
 
 bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config) {
+    if (config == NULL || !ssd1306_is_ready(ssd1306)) {
+        return false;
+    }
+
     ssd1306->buffer[0] = SSD1306_SEND_DATA;
+    memset(ssd1306->buffer + 1, 0, ssd1306->buffer_size - 1);
 
-    memset(ssd1306->buffer + 1, 0, SSD1306_DISPLAY_BYTES);
-
-    uint8_t commands[31];
+    uint8_t commands[40];
     uint8_t i = 0;
     commands[i++] = SSD1306_SEND_COMMAND;
 
+    // Ensure deterministic init even without a dedicated RESET pin.
+    commands[i++] = SSD1306_DISPLAY_OFF_COMMAND;
+
+    // Match controller scan geometry to the selected panel size.
+    const uint8_t geometry_mux_ratio = ssd1306->height - 1;
+    const bool geometry_com_alt_pin_config = (ssd1306->height > 32);
+
     commands[i++] = config->com_output_scan_direction_remapped ? SSD1306_COM_OUTPUT_SCAN_DIRECTION_REMAPPED_COMMAND : SSD1306_COM_OUTPUT_SCAN_DIRECTION_NORMAL_COMMAND;
 
-    if (config->mux_ratio < SSD1306_MUX_RATIO_MIN || config->mux_ratio > SSD1306_MUX_RATIO_MAX) return false;
+    if (geometry_mux_ratio < SSD1306_MUX_RATIO_MIN || geometry_mux_ratio > SSD1306_MUX_RATIO_MAX) return false;
     commands[i++] = SSD1306_MUX_RATIO_COMMAND;
-    commands[i++] = config->mux_ratio;
+    commands[i++] = geometry_mux_ratio;
 
     if (config->divide_ratio < SSD1306_DISPLAY_CLOCK_DIVIDE_RATIO_MIN ||
         config->divide_ratio > SSD1306_DISPLAY_CLOCK_DIVIDE_RATIO_MAX ||
@@ -168,6 +243,8 @@ bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config) {
     commands[i++] = (config->divide_ratio) | (config->oscillator_frequency << 4);
     
     commands[i++] = config->inverse ? SSD1306_DISPLAY_INVERSE_COMMAND : SSD1306_DISPLAY_NORMAL_COMMAND;
+    commands[i++] = SSD1306_ENTIRE_DISPLAY_ON_COMMAND; // Resume to RAM content (A4)
+    commands[i++] = SSD1306_DISPLAY_START_LINE_COMMAND; // Start line = 0
     
     commands[i++] = SSD1306_CONTRAST_COMMAND;
     commands[i++] = config->contrast;
@@ -203,7 +280,7 @@ bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config) {
     commands[i++] = SSD1306_VCOMH_DESELECT_LEVEL_COMMAND;
     commands[i++] = config->vcomh_deselect_level;
     
-    const uint8_t com_pins_val1 = config->com_alt_pin_config ? SSD1306_COM_PINS_HARDWARE_CONFIG_ALTERNATIVE_COM_PIN : SSD1306_COM_PINS_HARDWARE_CONFIG_SEQUENTIAL_COM_PIN;
+    const uint8_t com_pins_val1 = geometry_com_alt_pin_config ? SSD1306_COM_PINS_HARDWARE_CONFIG_ALTERNATIVE_COM_PIN : SSD1306_COM_PINS_HARDWARE_CONFIG_SEQUENTIAL_COM_PIN;
     const uint8_t com_pins_val2 = config->com_disable_left_right_remap ? SSD1306_COM_PINS_HARDWARE_CONFIG_DISABLE_REMAP : SSD1306_COM_PINS_HARDWARE_CONFIG_ENABLE_REMAP;
     commands[i++] = SSD1306_COM_PINS_HARDWARE_CONFIG_COMMAND;
     commands[i++] = com_pins_val1 | com_pins_val2;
@@ -215,11 +292,11 @@ bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config) {
     
     commands[i++] = SSD1306_DISPLAY_ON_COMMAND;
 
-    return i2c_check(i2c_write_blocking(ssd1306->i2c_inst, ssd1306->i2c_address, commands, i, false));
+    return i2c_write_exact(i2c_write_timeout_us(ssd1306->i2c_inst, ssd1306->i2c_address, commands, i, false, SSD1306_I2C_TIMEOUT_US), i);
 }
 
 static bool _ssd1306_draw_bitmap_internal(ssd1306_t* ssd1306, const uint8_t* bitmap, uint32_t offset, uint8_t width, uint8_t height, uint8_t start_x, uint8_t start_y) {
-    if (width == 0 || height == 0) {
+    if (!ssd1306_is_ready(ssd1306) || width == 0 || height == 0) {
         return false;
     }
 
@@ -232,7 +309,7 @@ static bool _ssd1306_draw_bitmap_internal(ssd1306_t* ssd1306, const uint8_t* bit
             uint16_t visual_x = start_x + x_in_bitmap;
             uint16_t visual_y = start_y + y_in_bitmap;
 
-            if (visual_x >= SSD1306_WIDTH || visual_y >= SSD1306_HEIGHT) {
+            if (visual_x >= ssd1306->width || visual_y >= ssd1306->height) {
                 continue;
             }
 
@@ -241,7 +318,7 @@ static bool _ssd1306_draw_bitmap_internal(ssd1306_t* ssd1306, const uint8_t* bit
             uint8_t src_byte = bitmap_data[byte_index];
             bool pixel_is_on = (src_byte >> (x_in_bitmap % 8)) & 1;
 
-            uint16_t buffer_index = (visual_y / 8) * SSD1306_WIDTH + visual_x;
+            uint16_t buffer_index = (visual_y / 8) * ssd1306->width + visual_x;
             uint8_t buffer_bit = visual_y % 8;
 
             if (pixel_is_on) {
@@ -255,17 +332,23 @@ static bool _ssd1306_draw_bitmap_internal(ssd1306_t* ssd1306, const uint8_t* bit
 }
 
 bool ssd1306_draw_bitmap(ssd1306_t* ssd1306, const bitmap_t* bitmap, uint8_t start_x, uint8_t start_y) {
-    if (bitmap == NULL || bitmap->data == NULL) {
+    if (!ssd1306_is_ready(ssd1306) || bitmap == NULL || bitmap->data == NULL) {
         return false;
     }
     return _ssd1306_draw_bitmap_internal(ssd1306, bitmap->data, 0, bitmap->width, bitmap->height, start_x, start_y);
 }
 
 void ssd1306_set_font(ssd1306_t* ssd1306, const font_t* font) {
+    if (ssd1306 == NULL) {
+        return;
+    }
     ssd1306->font = font;
 }
 
 bool ssd1306_print(ssd1306_t* ssd1306, const char* text, uint8_t start_x, uint8_t start_y) {
+    if (!ssd1306_is_ready(ssd1306)) {
+        return false;
+    }
     const font_t* font = ssd1306->font;
     if (font == NULL || text == NULL) {
         return false;
@@ -275,7 +358,7 @@ bool ssd1306_print(ssd1306_t* ssd1306, const char* text, uint8_t start_x, uint8_
     uint16_t codepoint;
 
     while (*text != '\0') {
-        if (current_x >= SSD1306_WIDTH) {
+        if (current_x >= ssd1306->width) {
             break;
         }
 
@@ -359,6 +442,44 @@ bool ssd1306_print(ssd1306_t* ssd1306, const char* text, uint8_t start_x, uint8_
 }
 
 bool ssd1306_show(ssd1306_t* ssd1306) {
-    bool is_ok = ssd1306_set_area(ssd1306, SSD1306_PAGE_START_ADDRESS, SSD1306_PAGE_END_ADDRESS, SSD1306_COLUMN_START_ADDRESS, SSD1306_COLUMN_END_ADDRESS);
-    return is_ok && i2c_check(i2c_write_blocking(ssd1306->i2c_inst, ssd1306->i2c_address, ssd1306->buffer, SSD1306_DISPLAY_BYTES + 1, false));
+    if (!ssd1306_is_ready(ssd1306)) {
+        return false;
+    }
+
+    const uint8_t pages = ssd1306->height / SSD1306_BITS_PER_COLUMN;
+
+    if (!ssd1306_send_command_value(ssd1306, SSD1306_MEMORY_ADDRESSING_MODE_COMMAND, SSD1306_MEMORY_ADDRESSING_MODE_PAGE)) {
+        return false;
+    }
+
+    uint8_t tx[1 + 128];
+    tx[0] = SSD1306_SEND_DATA;
+
+    for (uint8_t page = 0; page < pages; page++) {
+        if (!ssd1306_send_command(ssd1306, (uint8_t)(0xB0 | page))) {
+            return false;
+        }
+        if (!ssd1306_send_command(ssd1306, 0x00)) {
+            return false;
+        }
+        if (!ssd1306_send_command(ssd1306, 0x10)) {
+            return false;
+        }
+
+        memcpy(&tx[1], ssd1306->buffer + 1 + ((uint16_t)page * ssd1306->width), ssd1306->width);
+        if (!i2c_write_exact(i2c_write_timeout_us(ssd1306->i2c_inst, ssd1306->i2c_address, tx, (size_t)ssd1306->width + 1, false, SSD1306_I2C_TIMEOUT_US), (size_t)ssd1306->width + 1)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void ssd1306_destroy(ssd1306_t *ssd1306) {
+    if (ssd1306 == NULL || ssd1306->buffer == NULL) {
+        return;
+    }
+    free(ssd1306->buffer);
+    ssd1306->buffer = NULL;
+    ssd1306->buffer_size = 0;
 }

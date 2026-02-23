@@ -40,7 +40,7 @@ int main() {
     gpio_pull_up(I2C_SCL);
 
     // Create SSD1306
-    ssd1306_t ssd1306 = ssd1306_create(I2C_PORT, SSD1306_I2C_ADDRESS);
+    ssd1306_t ssd1306 = ssd1306_create(I2C_PORT, SSD1306_I2C_ADDRESS, SSD1306_DISPLAY_SIZE_128x64);
 
     // Setup SSD1306
     ssd1306_config_t ssd1306_cfg = ssd1306_get_default_config();
@@ -86,7 +86,18 @@ cmake --build build --target pico_ssd1306 # Build library
 
 ```sh
 cmake -S . -B build # OR cmake -S . -B build -DPICO_BOARD=pico2
-cmake --build build --target oled # See output files in `build/examples/oled`
+cmake --build build --target oled_128x64 # See output files in `build/examples/oled_128x64`
+cmake --build build --target oled_128x32 # See output files in `build/examples/oled_128x32`
+```
+
+### Flash using RP Debug Probe
+
+```bash
+openocd -s ~/.pico-sdk/openocd/0.12.0+dev/scripts \
+    -f interface/cmsis-dap.cfg \
+    -f target/rp2350.cfg \
+    -c "adapter speed 5000" \
+    -c "program build/examples/oled_128x64/oled_128x64.elf verify reset exit"
 ```
 
 ## API
@@ -95,8 +106,8 @@ cmake --build build --target oled # See output files in `build/examples/oled`
 // Gets the default ssd1306 configuration
 ssd1306_config_t ssd1306_get_default_config()
 
-// Creates an ssd1306 instance
-ssd1306_t ssd1306_create(i2c_inst_t* i2c_inst, uint8_t i2c_address)
+// Creates an ssd1306 instance (use SSD1306_DISPLAY_SIZE_128x64 or SSD1306_DISPLAY_SIZE_128x32)
+ssd1306_t ssd1306_create(i2c_inst_t* i2c_inst, uint8_t i2c_address, ssd1306_display_size_t display_size)
 
 // Initializes the ssd1306
 bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config)
@@ -127,6 +138,9 @@ bool ssd1306_draw_bitmap(ssd1306_t* ssd1306, const bitmap_t* bitmap, uint8_t sta
 
 // Shows the display content
 bool ssd1306_show(ssd1306_t* ssd1306)
+
+// Destroys the ssd1306 instance
+void ssd1306_destroy(ssd1306_t* ssd1306)
 ```
 
 ## Compatibility
@@ -139,6 +153,7 @@ bool ssd1306_show(ssd1306_t* ssd1306)
 ### Displays
 
 - 128x64
+- 128x32
 
 ## Set Up VS Code
 

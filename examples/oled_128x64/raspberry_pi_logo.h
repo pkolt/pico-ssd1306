@@ -1,6 +1,4 @@
-// raspberry_pi.h
-#ifndef RASPBERRY_PI_H
-#define RASPBERRY_PI_H
+#pragma once
 
 #include <stdint.h>
 #include "ssd1306.h"
@@ -12,5 +10,3 @@ const bitmap_t raspberry_pi_logo = {
     .height = 64,
     .data = data
 };
-
-#endif // RASPBERRY_PI_H

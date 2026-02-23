@@ -13,7 +13,7 @@
 #include "ssd1306_def.h"
 
 ssd1306_config_t ssd1306_get_default_config();
-ssd1306_t ssd1306_create(i2c_inst_t* i2c_inst, uint8_t i2c_address);
+ssd1306_t ssd1306_create(i2c_inst_t* i2c_inst, uint8_t i2c_address, ssd1306_display_size_t display_size);
 bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config);
 bool ssd1306_set_contrast(ssd1306_t* ssd1306, uint8_t contrast);
 bool ssd1306_set_inverse(ssd1306_t* ssd1306, bool value);
@@ -24,6 +24,7 @@ void ssd1306_set_font(ssd1306_t* ssd1306, const font_t* font);
 bool ssd1306_print(ssd1306_t* ssd1306, const char* text, uint8_t start_x, uint8_t start_y);
 bool ssd1306_draw_bitmap(ssd1306_t* ssd1306, const bitmap_t* bitmap, uint8_t start_x, uint8_t start_y);
 bool ssd1306_show(ssd1306_t* ssd1306);
+void ssd1306_destroy(ssd1306_t* ssd1306);
 
 
 #endif // SSD1306_H

@@ -1,1 +1,2 @@
-add_subdirectory(oled)
+add_subdirectory(oled_128x64)
+add_subdirectory(oled_128x32)
