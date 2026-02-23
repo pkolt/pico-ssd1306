@@ -11,6 +11,9 @@
 #include "ssd1306_def.h"
 #include "ssd1306.h"
 
+// Maximum bytes in the SSD1306 init command sequence, including leading control byte.
+#define SSD1306_INIT_COMMANDS_CAPACITY 30
+
 static bool i2c_write_exact(int result, size_t expected_len) {
     return result == (int)expected_len;
 }
@@ -216,7 +219,7 @@ bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config) {
     ssd1306->buffer[0] = SSD1306_SEND_DATA;
     memset(ssd1306->buffer + 1, 0, ssd1306->buffer_size - 1);
 
-    uint8_t commands[40];
+    uint8_t commands[SSD1306_INIT_COMMANDS_CAPACITY];
     uint8_t i = 0;
     commands[i++] = SSD1306_SEND_COMMAND;
 
@@ -243,14 +246,14 @@ bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config) {
     commands[i++] = (config->divide_ratio) | (config->oscillator_frequency << 4);
     
     commands[i++] = config->inverse ? SSD1306_DISPLAY_INVERSE_COMMAND : SSD1306_DISPLAY_NORMAL_COMMAND;
-    commands[i++] = SSD1306_ENTIRE_DISPLAY_ON_COMMAND; // Resume to RAM content (A4)
+    commands[i++] = SSD1306_ENTIRE_DISPLAY_ON_COMMAND; // A4: disable "entire display ON" override and render RAM again (opposite of A5)
     commands[i++] = SSD1306_DISPLAY_START_LINE_COMMAND; // Start line = 0
     
     commands[i++] = SSD1306_CONTRAST_COMMAND;
     commands[i++] = config->contrast;
 
-    if ((config->fade_out_blinking_mode != SSD1306_FADE_OUT_BLINKING_DISABLE && config->fade_out_blinking_mode != SSD1306_FADE_OUT_MODE && config->fade_out_blinking_mode != SSD1306_BLINKING_MODE) ||
-        (config->fade_out_time_interval < SSD1306_FADE_OUT_BLINKING_TIME_INTERVAL_MIN || config->fade_out_time_interval > SSD1306_FADE_OUT_BLINKING_TIME_INTERVAL_MAX)) {
+    if (config->fade_out_time_interval < SSD1306_FADE_OUT_BLINKING_TIME_INTERVAL_MIN ||
+        config->fade_out_time_interval > SSD1306_FADE_OUT_BLINKING_TIME_INTERVAL_MAX) {
         return false;
     }
     commands[i++] = SSD1306_FADE_OUT_BLINKING_COMMAND;
@@ -274,9 +277,6 @@ bool ssd1306_init(ssd1306_t* ssd1306, const ssd1306_config_t* config) {
     commands[i++] = SSD1306_PRE_CHARGE_PERIOD_COMMAND;
     commands[i++] = (config->pre_charge_period_phase_1 << 4) | config->pre_charge_period_phase_2;
     
-    if (config->vcomh_deselect_level != SSD1306_VCOMH_DESELECT_LEVEL0 && config->vcomh_deselect_level != SSD1306_VCOMH_DESELECT_LEVEL1 && config->vcomh_deselect_level != SSD1306_VCOMH_DESELECT_LEVEL2) {
-        return false;
-    }
     commands[i++] = SSD1306_VCOMH_DESELECT_LEVEL_COMMAND;
     commands[i++] = config->vcomh_deselect_level;
     
@@ -302,32 +302,62 @@ static bool _ssd1306_draw_bitmap_internal(ssd1306_t* ssd1306, const uint8_t* bit
 
     const uint8_t *bitmap_data = &bitmap[offset];
     const uint16_t bitmap_bytes_per_row = (width + 7) / 8;
+    const uint16_t display_width = ssd1306->width;
+    const uint16_t display_height = ssd1306->height;
 
-    for (uint16_t y_in_bitmap = 0; y_in_bitmap < height; y_in_bitmap++) {
-        for (uint16_t x_in_bitmap = 0; x_in_bitmap < width; x_in_bitmap++) {
-            
-            uint16_t visual_x = start_x + x_in_bitmap;
-            uint16_t visual_y = start_y + y_in_bitmap;
+    // Fast reject when bitmap starts fully outside visible area.
+    if (start_x >= display_width || start_y >= display_height) {
+        return true;
+    }
 
-            if (visual_x >= ssd1306->width || visual_y >= ssd1306->height) {
-                continue;
-            }
+    // Clip the source rectangle once, so the hot loops below stay branch-light.
+    const bool clipped_x = ((uint16_t)start_x + width > display_width);
+    const bool clipped_y = ((uint16_t)start_y + height > display_height);
+    const uint16_t draw_width = clipped_x ? (display_width - start_x) : width;
+    const uint16_t draw_height = clipped_y ? (display_height - start_y) : height;
 
-            uint16_t byte_index = y_in_bitmap * bitmap_bytes_per_row + (x_in_bitmap / 8);
+    // Split each source row into full 8-pixel chunks and optional tail bits.
+    const uint16_t full_bytes = draw_width >> 3;
+    const uint16_t tail_bits = draw_width & 0x07;
 
-            uint8_t src_byte = bitmap_data[byte_index];
-            bool pixel_is_on = (src_byte >> (x_in_bitmap % 8)) & 1;
+    for (uint16_t y_in_bitmap = 0; y_in_bitmap < draw_height; y_in_bitmap++) {
+        const uint16_t visual_y = start_y + y_in_bitmap;
+        // SSD1306 framebuffer is page-based: one byte stores 8 vertical pixels in a column.
+        const uint16_t page = visual_y >> 3;
+        const uint8_t buffer_bit = (uint8_t)(visual_y & 0x07);
+        const uint8_t bitmask = (uint8_t)(1u << buffer_bit);
+        const uint8_t inv_bitmask = (uint8_t)~bitmask;
+        const uint16_t row_base = y_in_bitmap * bitmap_bytes_per_row;
+        const uint16_t buffer_row_base = (page * display_width) + start_x + 1; // +1 skips SSD1306_SEND_DATA control byte
 
-            uint16_t buffer_index = (visual_y / 8) * ssd1306->width + visual_x;
-            uint8_t buffer_bit = visual_y % 8;
+        // Fast path for complete bytes from source row.
+        for (uint16_t src_byte_idx = 0; src_byte_idx < full_bytes; src_byte_idx++) {
+            const uint8_t src_byte = bitmap_data[row_base + src_byte_idx];
+            const uint16_t buffer_index = buffer_row_base + (src_byte_idx << 3);
+            ssd1306->buffer[buffer_index + 0] = (ssd1306->buffer[buffer_index + 0] & inv_bitmask) | ((src_byte & (1u << 0)) ? bitmask : 0u);
+            ssd1306->buffer[buffer_index + 1] = (ssd1306->buffer[buffer_index + 1] & inv_bitmask) | ((src_byte & (1u << 1)) ? bitmask : 0u);
+            ssd1306->buffer[buffer_index + 2] = (ssd1306->buffer[buffer_index + 2] & inv_bitmask) | ((src_byte & (1u << 2)) ? bitmask : 0u);
+            ssd1306->buffer[buffer_index + 3] = (ssd1306->buffer[buffer_index + 3] & inv_bitmask) | ((src_byte & (1u << 3)) ? bitmask : 0u);
+            ssd1306->buffer[buffer_index + 4] = (ssd1306->buffer[buffer_index + 4] & inv_bitmask) | ((src_byte & (1u << 4)) ? bitmask : 0u);
+            ssd1306->buffer[buffer_index + 5] = (ssd1306->buffer[buffer_index + 5] & inv_bitmask) | ((src_byte & (1u << 5)) ? bitmask : 0u);
+            ssd1306->buffer[buffer_index + 6] = (ssd1306->buffer[buffer_index + 6] & inv_bitmask) | ((src_byte & (1u << 6)) ? bitmask : 0u);
+            ssd1306->buffer[buffer_index + 7] = (ssd1306->buffer[buffer_index + 7] & inv_bitmask) | ((src_byte & (1u << 7)) ? bitmask : 0u);
+        }
 
-            if (pixel_is_on) {
-                ssd1306->buffer[buffer_index + 1] |= (1 << buffer_bit);
-            } else {
-                ssd1306->buffer[buffer_index + 1] &= ~(1 << buffer_bit);
+        // Handle the last partial byte when width is not aligned to 8 pixels.
+        if (tail_bits != 0) {
+            const uint16_t tail_byte_index = row_base + full_bytes;
+            const uint8_t src_byte = bitmap_data[tail_byte_index];
+            const uint16_t tail_buffer_base = buffer_row_base + (full_bytes << 3);
+
+            for (uint16_t bit = 0; bit < tail_bits; bit++) {
+                const uint16_t buffer_index = tail_buffer_base + bit;
+                const uint8_t on_mask = (uint8_t)((src_byte & (1u << bit)) ? bitmask : 0u);
+                ssd1306->buffer[buffer_index] = (ssd1306->buffer[buffer_index] & inv_bitmask) | on_mask;
             }
         }
     }
+
     return true;
 }
 
